@@ -21,10 +21,7 @@ def generate_pages(fil):
             yield page
 
 def main(archive_path, proc):
-    if archive_path == '-':
-        fil = bz2.BZ2File(sys.stdin)
-    else:
-        fil = bz2.BZ2File(archive_path, 'rU')
+    fil = bz2.BZ2File(archive_path, 'rU')
 
     for (ix, raw_page_bytes) in enumerate(generate_pages(fil)):
         try:
@@ -47,9 +44,7 @@ if __name__ == "__main__":
     parser.add_argument('proc', metavar='[PKG.]MOD.FUNC', action='store')
     args = parser.parse_args()
 
-    if args.archive_path == '-':
-        pass
-    elif not os.path.exists(args.archive_path):
+    if not os.path.exists(args.archive_path):
         print("No such path", args.archive_path)
         sys.exit(1)
 
