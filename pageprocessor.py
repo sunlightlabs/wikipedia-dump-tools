@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from __future__ import division, print_function
 
 import sys
@@ -5,6 +7,8 @@ import os
 import argparse
 import bz2
 import lxml.etree
+
+from functional import compose
 
 from util import progress
 from importer import import_function
@@ -35,23 +39,35 @@ def main(archive_path, proc):
     # Signal end of pages
     apply(proc, [None])
 
-def printproc(path):
-    print(path)
+def compose_many(first, *rest):
+    return reduce(compose, rest, first)
+
+def printproc(page):
+    print(page)
+    return page
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pass each page to a given function.")
-    parser.add_argument('archive_path', metavar='WIKIPEDIA_ARCHIVE', action='store')
-    parser.add_argument('proc', metavar='[PKG.]MOD.FUNC', action='store')
+    parser.add_argument('archive_path', metavar='wikipedia_archive', action='store',
+                        help='Path to the .xml.bz2 Wikipedia archive.')
+    parser.add_argument('pkg_mod_func', action='store', nargs='+',
+                        help='Function(s) to pass each page to, e.g. wikitools.examples.print_page')
     args = parser.parse_args()
 
     if not os.path.exists(args.archive_path):
         print("No such path", args.archive_path)
         sys.exit(1)
 
-    proc = import_function(args.proc)
-    if proc is None:
-        print("Could not import", args.proc)
+    procs = [(pkg_mod_func, import_function(pkg_mod_func))
+             for pkg_mod_func in args.pkg_mod_func]
+    broken = [pkg_mod_func
+              for (pkg_mod_func, func) in procs
+              if func is None]
+    if len(broken) > 0:
+        for pkg_mod_func in broken:
+            print("Could not import", pkg_mod_func)
         sys.exit(1)
+    proc = compose_many(*[func for (_, func) in procs])
 
     main(args.archive_path, proc)
 
