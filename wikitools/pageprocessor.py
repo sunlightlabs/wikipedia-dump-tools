@@ -16,7 +16,7 @@ from functional import compose
 
 from util import progress
 from exceptions import DropPage
-from importer import import_function
+from wikitools.importer import import_function
 
 Log = logging.getLogger(os.path.basename(__file__)
                         if __name__ == "__main__"
