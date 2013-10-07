@@ -33,7 +33,7 @@ def generate_pages(fil):
             page = ''.join(lines)
             yield page
 
-def main(archive_path, proc, progress_cb):
+def main(archive_path, proc, ignore_exceptions=False, progress_cb=None):
     fil = bz2.BZ2File(archive_path, 'rU')
 
     try:
@@ -44,6 +44,12 @@ def main(archive_path, proc, progress_cb):
                     apply(proc, [page_dom])
                 except DropPage as e:
                     Log.info(unicode(e))
+                except Exception as e:
+                    if ignore_exceptions == True:
+                        Log.error(u"Uncaught exception: {e}".format(e=unicode(e)))
+                    else:
+                        raise
+
                 if isCallable(progress_cb):
                     progress_cb(ix)
         except lxml.etree.XMLSyntaxError as e:
@@ -67,7 +73,10 @@ if __name__ == "__main__":
     parser.add_argument('archive_path', metavar='wikipedia_archive', action='store',
                         help='Path to the .xml.bz2 Wikipedia archive.')
     parser.add_argument('pkg_mod_func', action='store', nargs='+',
-                        help='Function(s) to pass each page to, e.g. wikitools.examples.print_page')
+                        help='Function(s) to pass each page to, e.g. wikitools.examples.print_page'),
+    parser.add_argument('--continue-on-error', action='store_true',
+                        default=False, dest='continue_on_error',
+                        help='Continue when an exception goes uncaught.'),
     parser.add_argument('--progress', action='store_true', default=False,
                         help='Display progress.')
     parser.add_argument('--loglevel', metavar='LEVEL', type=str,
@@ -94,5 +103,8 @@ if __name__ == "__main__":
 
     progress_cb = progress if args.progress else None
     logging.basicConfig(level=getattr(logging, args.loglevel.upper()))
-    main(args.archive_path, proc, progress_cb)
+    main(args.archive_path,
+         proc,
+         ignore_exceptions=args.continue_on_error,
+         progress_cb=progress_cb)
 
