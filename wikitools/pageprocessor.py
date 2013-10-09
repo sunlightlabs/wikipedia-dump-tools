@@ -10,17 +10,26 @@ import bz2
 import logging
 import lxml.etree
 
-from operator import isCallable
+from functools import partial
 
 from functional import compose
 
-from util import progress
 from exceptions import DropPage
 from wikitools.importer import import_function
 
 Log = logging.getLogger(os.path.basename(__file__)
                         if __name__ == "__main__"
                         else __name__)
+
+def configure_logging(args):
+    logging_config = {
+        'level': getattr(logging, args.loglevel.upper())
+    }
+    if args.log == '-':
+        logging_config['stream'] = sys.stdout
+    else:
+        logging_config['filename'] = args.log
+    logging.basicConfig(**logging_config)
 
 def generate_pages(fil):
     lines = []
@@ -33,7 +42,7 @@ def generate_pages(fil):
             page = ''.join(lines)
             yield page
 
-def main(archive_path, proc, ignore_exceptions=False, progress_cb=None):
+def main(archive_path, proc, ignore_exceptions=False):
     fil = bz2.BZ2File(archive_path, 'rU')
 
     try:
@@ -50,16 +59,11 @@ def main(archive_path, proc, ignore_exceptions=False, progress_cb=None):
                     else:
                         raise
 
-                if isCallable(progress_cb):
-                    progress_cb(ix)
         except lxml.etree.XMLSyntaxError as e:
-            print("Could not parse page", ix, str(e), ":")
-            print(raw_page_bytes)
+            logging.warn(u"Could not parse page {ix} because {e}".format(ix=ix, e=unicode(e)))
+            logging.warn(raw_page_bytes)
     except KeyboardInterrupt:
-        pass
-
-    # Signal end of pages
-    apply(proc, [None])
+        print("Stopped by CTRL-C", file=sys.stderr)
 
 def compose_many(first, *rest):
     return reduce(compose, rest, first)
@@ -68,28 +72,24 @@ def printproc(page):
     print(page)
     return page
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Pass each page to a given function.")
-    parser.add_argument('archive_path', metavar='wikipedia_archive', action='store',
-                        help='Path to the .xml.bz2 Wikipedia archive.')
-    parser.add_argument('pkg_mod_func', action='store', nargs='+',
-                        help='Function(s) to pass each page to, e.g. wikitools.examples.print_page'),
-    parser.add_argument('--continue-on-error', action='store_true',
-                        default=False, dest='continue_on_error',
-                        help='Continue when an exception goes uncaught.'),
-    parser.add_argument('--progress', action='store_true', default=False,
-                        help='Display progress.')
-    parser.add_argument('--loglevel', metavar='LEVEL', type=str,
-                        help='Logging level (default: info)',
-                        default='notice',
-                        choices=('debug', 'info', 'warning',
-                                 'error', 'critical'))
-    args = parser.parse_args()
+def interleave_debug_calls(funclist):
+    newlist = []
+    def _dbg(funcname, page_dom):
+        if funcname is None:
+            print("Initial page DOM:", file=sys.stderr)
+        else:
+            print("Page DOM after calling", funcname, ":", file=sys.stderr)
+        print(lxml.etree.tostring(page_dom))
+        return page_dom
 
-    if not os.path.exists(args.archive_path):
-        print("No such path", args.archive_path)
-        sys.exit(1)
+    for f in funclist:
+        newlist.append(partial(_dbg, f.__name__))
+        newlist.append(f)
 
+    newlist.append(partial(_dbg, None))
+    return newlist
+
+def compose_proc(args):
     procs = [(pkg_mod_func, import_function(pkg_mod_func))
              for pkg_mod_func in args.pkg_mod_func]
     broken = [pkg_mod_func
@@ -97,14 +97,42 @@ if __name__ == "__main__":
               if func is None]
     if len(broken) > 0:
         for pkg_mod_func in broken:
-            print("Could not import", pkg_mod_func)
+            print("Could not import", pkg_mod_func, file=sys.stderr)
         sys.exit(1)
-    proc = compose_many(*[func for (_, func) in procs])
+    funclist = [func for (_, func) in procs]
+    if args.debug_composition == True:
+        funclist = interleave_debug_calls(funclist)
+    return compose_many(*funclist)
 
-    progress_cb = progress if args.progress else None
-    logging.basicConfig(level=getattr(logging, args.loglevel.upper()))
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pass each page to a given function.")
+    parser.add_argument('archive_path', metavar='wikipedia_archive', action='store',
+                        help='Path to the .xml.bz2 Wikipedia archive.')
+    parser.add_argument('pkg_mod_func', action='store', nargs='+',
+                        help='Function(s) to pass each page to, e.g. wikitools.examples.print_page'),
+    parser.add_argument('--debug-composition', action='store_true',
+                        default=False, dest='debug_composition',
+                        help='Dump the document after each function.'),
+    parser.add_argument('--continue-on-error', action='store_true',
+                        default=False, dest='continue_on_error',
+                        help='Continue when an exception goes uncaught.'),
+    parser.add_argument('--log', metavar='FILE', dest='log', default='-',
+                        help='Where to write the log file.'),
+    parser.add_argument('--loglevel', metavar='LEVEL', type=str,
+                        help='Logging level (default: info)',
+                        default='info',
+                        choices=('debug', 'info', 'warning',
+                                 'error', 'critical'))
+    args = parser.parse_args()
+    configure_logging(args)
+
+    if not os.path.exists(args.archive_path):
+        print("No such path", args.archive_path)
+        sys.exit(1)
+
+    proc = compose_proc(args)
+
     main(args.archive_path,
          proc,
-         ignore_exceptions=args.continue_on_error,
-         progress_cb=progress_cb)
+         ignore_exceptions=args.continue_on_error)
 
