@@ -5,6 +5,7 @@ from __future__ import division, print_function
 
 import sys
 import os
+import re
 import argparse
 import bz2
 import logging
@@ -14,7 +15,7 @@ from functools import partial
 
 from functional import compose
 
-from exceptions import DropPage
+from exceptions import DropPage, AbortProcess
 from wikitools.importer import import_function
 
 Log = logging.getLogger(os.path.basename(__file__)
@@ -50,12 +51,15 @@ def main(archive_path, proc, ignore_exceptions=False):
             for (ix, raw_page_bytes) in enumerate(generate_pages(fil)):
                 page_dom = lxml.etree.fromstring(raw_page_bytes)
                 try:
-                    apply(proc, [page_dom])
+                    page_dom = apply(proc, [page_dom])
                 except DropPage as e:
                     Log.info(unicode(e))
+                except AbortProcess as e:
+                    raise
                 except Exception as e:
                     if ignore_exceptions == True:
                         Log.error(u"Uncaught exception: {e}".format(e=unicode(e)))
+                        Log.error(raw_page_bytes)
                     else:
                         raise
 
@@ -64,6 +68,9 @@ def main(archive_path, proc, ignore_exceptions=False):
             logging.warn(raw_page_bytes)
     except KeyboardInterrupt:
         print("Stopped by CTRL-C", file=sys.stderr)
+
+    except AbortProcess as e:
+        print("Aborted by user function:", unicode(e), file=sys.stderr)
 
 def compose_many(first, *rest):
     return reduce(compose, rest, first)
@@ -89,8 +96,21 @@ def interleave_debug_calls(funclist):
     newlist.append(partial(_dbg, None))
     return newlist
 
+def import_and_bind(s):
+    match = re.compile(ur"^([_a-z0-9]+(?:\.[a-z0-9_]+)*)(\[.*\])?$", re.I).match(s)
+    if match is None:
+        raise ImportError(s)
+    else:
+        pkg_mod_func = match.group(1)
+        func = import_function(pkg_mod_func)
+        args_str = match.group(2)
+        if args_str is not None:
+            args = eval(args_str)
+            func = partial(func, *args)
+        return func
+
 def compose_proc(args):
-    procs = [(pkg_mod_func, import_function(pkg_mod_func))
+    procs = [(pkg_mod_func, import_and_bind(pkg_mod_func))
              for pkg_mod_func in args.pkg_mod_func]
     broken = [pkg_mod_func
               for (pkg_mod_func, func) in procs
