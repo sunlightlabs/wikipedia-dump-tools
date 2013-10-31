@@ -38,7 +38,7 @@ With this invocation, each page will be passed to a function that is the equival
 Both `limit_to_namespace` and `drop_redirects` will raise a special exception `wikitools.exceptions.DropPage` in order to prevent the page from being passed to the outer functions. The use of `limit_to_namespace` differs from `drop_redirects` in that it is called with a static first argument `0`. Each function specified on the command line can be followed by a list of arguments. These arguments are the same for each invocation of the function. Specifying python literals in a shell can be awkward. Consider this example:
 
 ```python
-    &#x0023 my_module.py
+    # my_module.py
     def list_pages_with_prefix(prefix, page_dom):
         title = page_dom.find('title').text
         if title.startswith(prefix):
